@@ -1,10 +1,8 @@
-# __author__: weimin
 # this script demonstrates a simple neuron network to implement function
 # f = sigmoid(a*x + b*y + c). Both forward and backward propagations are implemented
 # Original source from Andrej Karpathy blog: http://karpathy.github.io/neuralnets/
 
 import math
-
 class Unit(object):
     def __init__(self, value, grad):
         self.value = value
@@ -45,9 +43,6 @@ class sigmoidGate(object):
         temp = self.sig(self.u0.value)
         self.u0.grad += temp * (1-temp) * self.utop.grad
         
-def fastForwardProp(a, b, c, x, y):
-    return 1/(1 + math.exp(-(a*x + b*y +c)))
-    
 def forwardProp():
     ax = multi0.forwardProp(a, x)
     by = multi1.forwardProp(b, y)
@@ -62,6 +57,9 @@ def backwardProp():
     add0.backwardProp()
     multi1.backwardProp()
     multi0.backwardProp()
+    
+def fastForwardProp(a, b, c, x, y):
+    return 1/(1 + math.exp(-(a*x + b*y +c)))
     
 multi0 = multiGate()
 multi1 = multiGate()
