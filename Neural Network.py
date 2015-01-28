@@ -44,20 +44,9 @@ class sigmoidGate(object):
         temp = self.sig(self.u0.value)
         self.u0.grad += temp * (1-temp) * self.utop.grad
         
-        
-multi0 = multiGate()
-multi1 = multiGate()
-add0 = addGate()
-add1 = addGate()
-sigmoid0 = sigmoidGate()
-        
-a = Unit(1.0, 0.0)
-b = Unit(2.0, 0.0)
-c = Unit(-3.0, 0.0)
-x = Unit(-1.0, 0.0)
-y = Unit(3.0, 0.0)
-        
-        
+def fastForwardProp(a, b, c, x, y):
+    return 1/(1 + math.exp(-(a*x + b*y +c)))
+    
 def forwardProp():
     ax = multi0.forwardProp(a, x)
     by = multi1.forwardProp(b, y)
@@ -73,17 +62,48 @@ def backwardProp():
     multi1.backwardProp()
     multi0.backwardProp()
     
+multi0 = multiGate()
+multi1 = multiGate()
+add0 = addGate()
+add1 = addGate()
+sigmoid0 = sigmoidGate()
         
+a = Unit(1.0, 0.0)
+b = Unit(2.0, 0.0)
+c = Unit(-3.0, 0.0)
+x = Unit(-1.0, 0.0)
+y = Unit(3.0, 0.0)
+    
+# testing 
+# analytics gradients using back-prop
+s = forwardProp()
+print "s value and gradient are: "
+print s.value, s.grad
+s.grad = 1.0
+backwardProp()
+print 
+print "Now increase the gradient of s by 1"
+print 
+print "new analytical gradients after 1 round of back-prop "
+print a.grad, b.grad, c.grad, x.grad, y.grad
+
+#numeric result to check the correctness
+h = 0.0001
+a = a.value
+b = b.value
+c = c.value
+x = x.value
+y = y.value
+
+a_grad = (fastForwardProp(a+h,b,c,x,y) - fastForwardProp(a,b,c,x,y))/h;
+b_grad = (fastForwardProp(a,b+h,c,x,y) - fastForwardProp(a,b,c,x,y))/h;
+c_grad = (fastForwardProp(a,b,c+h,x,y) - fastForwardProp(a,b,c,x,y))/h;
+x_grad = (fastForwardProp(a,b,c,x+h,y) - fastForwardProp(a,b,c,x,y))/h;
+y_grad = (fastForwardProp(a,b,c,x,y+h) - fastForwardProp(a,b,c,x,y))/h;
         
-        
-        
-        
-        
-        
-        
-        
-        
-        
+print 
+print "numeric gradients are: "
+print a_grad, b_grad, c_grad, x_grad, y_grad
         
         
         
