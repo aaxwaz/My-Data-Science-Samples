@@ -1,6 +1,7 @@
 # __author__: weimin
 # this script demonstrates a simple neuron network to implement function
 # f = sigmoid(a*x + b*y + c). Both forward and backward propagations are implemented
+# Original source from Andrej Karpathy blog: http://karpathy.github.io/neuralnets/
 
 import math
 
