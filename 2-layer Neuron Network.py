@@ -3,6 +3,7 @@
 # n2 = max(0, a2*x + b2*y + c2); 
 # n3 = max(0, a3*x + b3*y + c3)
 # score = a4*n1 + b4*n2 + c4*n3 + d4
+# There are N = 6 data points as training set, and boostrap out to 4000 for training use 
 
 import math
 import random
