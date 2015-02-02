@@ -1,158 +1,126 @@
+from __future__ import division
 import numpy as np
-import random
 from scipy import optimize
 
 class NeuralNetwork(object):
-
-    def __init__(self, epsilon_init = 0.12, reg_lambda = 1.0, opti_method='TNC', hidden_layer_size = 25, maxiter=200):
-        self.epsilon_init = epsilon_init
-        self.opti_method = opti_method
-        self.maxiter = maxiter
-        self.hidden_layer_size = hidden_layer_size
+    
+    def __init__(self, reg_lambda=1.0, epsilon_init=0.12, hidden_layer_size=25, opti_method='TNC', maxiter=200):
         self.reg_lambda = reg_lambda
+        self.epsilon_init = epsilon_init
+        self.hidden_layer_size = hidden_layer_size
+        self.activation_func = self.sigmoid
+        self.activation_func_prime = self.sigmoid_prime
+        self.method = opti_method
+        self.maxiter = maxiter
     
-    def sigmoid(self,x):
-        return 1.0 / (1.0 + np.exp(-x));
-        
-    def randInitializeWeights(self, L_in, L_out):
-        W = np.ones([L_out, L_in + 1])
-        W = W * random.random() * 2 * self.epsilon_init - self.epsilon_init
-        return W
+    def sigmoid(self, z):
+        return 1 / (1 + np.exp(-z))
     
-    def feedForward(self):
-        pass
+    def sigmoid_prime(self, z):
+        sig = self.sigmoid(z)
+        return sig * (1 - sig)
     
-    def nnCostFunction(self, nn_params, input_layer_size, hidden_layer_size, num_labels, X, y, theLambda):
-        # nnCostFunction is used to calculate cost and gradients
-        # parameters: 
-        # theta1, theta2: one dimensional arrays containing weights for the network
-        # input_layer_size: integer, indicating size of input layer
-        # hidden_layer_size: integer, indicating size of hidden layer
-        # num_labels: integer, indicating size of output layer
-        # X, y: training and target data set; X is m by n (e.g. 5000 x 400) where y is m by 1 (e.g. from 1 to 10)
-        # theLambda: regularization coefficient
-        theta1 = nn_params[0:hidden_layer_size * (input_layer_size + 1)] 
-        theta1 = theta1.reshape(hidden_layer_size, input_layer_size + 1)
-        theta2 = nn_params[(hidden_layer_size * (input_layer_size + 1)):]
-        theta2 = theta2.reshape(num_labels, hidden_layer_size + 1)
-        theta1_grad = np.zeros(np.shape(theta1)) # 25 x 401
-        theta2_grad = np.zeros(np.shape(theta2)) # 10 x 26
-         
-        m = np.size(X,0)                              # 5000
-        n = np.size(X,1)                              # 400
-        J = 0.0
+    def sumsqr(self, a):
+        return np.sum(a ** 2)
+    
+    def rand_init(self, l_in, l_out):
+        return np.random.rand(l_out, l_in + 1) * 2 * self.epsilon_init - self.epsilon_init
+    
+    def pack_thetas(self, t1, t2):
+        return np.concatenate((t1.reshape(-1), t2.reshape(-1)))
+    
+    def unpack_thetas(self, thetas, input_layer_size, hidden_layer_size, num_labels):
+        t1_start = 0
+        t1_end = hidden_layer_size * (input_layer_size + 1)
+        t1 = thetas[t1_start:t1_end].reshape((hidden_layer_size, input_layer_size + 1))
+        t2 = thetas[t1_end:].reshape((num_labels, hidden_layer_size + 1))
+        return t1, t2
+    
+    def _forward(self, X, t1, t2):
+        m = X.shape[0]
+        ones = None
+        if len(X.shape) == 1:
+            ones = np.array(1).reshape(1,)
+        else:
+            ones = np.ones(m).reshape(m,1)
         
-        # initializing
-        y = y.reshape(m, )
-        y = y-1
-        y = np.eye(num_labels)[y]                     # 5000 x 10
-        a1 = np.append(np.ones([m,1]),X,1)            # 5000 x 401
+        # Input layer
+        a1 = np.hstack((ones, X))
         
-        # feedForward
-        z2 = np.dot(theta1, a1.T)                     # 25 x 5000
-        a2 = self.sigmoid(z2)
-        a2 = np.append(np.ones([1,m]), a2, 0)         # 26 x 5000
+        # Hidden Layer
+        z2 = np.dot(t1, a1.T)
+        a2 = self.activation_func(z2)
+        a2 = np.hstack((ones, a2.T))
         
-        z3 = np.dot(theta2, a2)
-        a3 = self.sigmoid(z3).T                       # 5000 * 10
+        # Output layer
+        z3 = np.dot(t2, a2.T)
+        a3 = self.activation_func(z3)
+        return a1, z2, a2, z3, a3
+    
+    def function(self, thetas, input_layer_size, hidden_layer_size, num_labels, X, y, reg_lambda):
+        t1, t2 = self.unpack_thetas(thetas, input_layer_size, hidden_layer_size, num_labels)
         
-        J = -y * np.log(a3) - (1-y) * np.log(1- a3)
-        J = np.sum(J)
+        m = X.shape[0]
+        Y = np.eye(num_labels)[y]
         
-        # back-prop
-        delta_3 = a3 - y            # 5000 x 10
-        delta_2 = np.dot(theta2.T, delta_3.T) * (a2 * (1-a2))    # 26 x 5000    
-        delta_2 = delta_2[1:,:]   # 25 x 5000        
-        theta2_grad = theta2_grad + np.dot(delta_3.T, a2.T)
-        theta1_grad = theta1_grad + np.dot(delta_2, a1)
+        _, _, _, _, h = self._forward(X, t1, t2)
+        costPositive = -Y * np.log(h).T
+        costNegative = (1 - Y) * np.log(1 - h).T
+        cost = costPositive - costNegative
+        J = np.sum(cost) / m
         
-        '''
-        for i in range(m):
-            target_of_i = y_matrix[i,:].reshape(1,num_labels)                                  # 1 x 10
+        if reg_lambda != 0:
+            t1f = t1[:, 1:]
+            t2f = t2[:, 1:]
+            reg = (self.reg_lambda / (2.0 * m)) * (self.sumsqr(t1f) + self.sumsqr(t2f))
+            J = J + reg
+        return J
+        
+    def function_prime(self, thetas, input_layer_size, hidden_layer_size, num_labels, X, y, reg_lambda):
+        t1, t2 = self.unpack_thetas(thetas, input_layer_size, hidden_layer_size, num_labels)
+        
+        m = X.shape[0]
+        t1f = t1[:, 1:]  #25 400
+        t2f = t2[:, 1:]  #10 25
+        Y = np.eye(num_labels)[y]
+        
+        Delta1, Delta2 = 0, 0  # 25 401; 10 26
+        
+        a1, z2, a2, z3, a3 = self._forward(X, t1, t2) # (5000, 401)  (25, 5000) (5000, 26) (10, 5000) (10, 5000)
+     
+        d3 = a3 - Y.T  #10 5000
+        d2 = np.dot(t2f.T, d3) * self.activation_func_prime(z2) # 25 x 5000
+        
+        Delta2 = np.dot(d3, a2) #10 26
+        Delta1 = np.dot(d2, a1) #25 401
             
-            a1 = X_matrix[i,:].reshape(1,n+1)                                                  # 1 x 401
-            z2 = np.dot(a1,np.transpose(theta1)).reshape(1,hidden_layer_size)                  # 1 x 25
-            a2 = self.sigmoid(z2)                                                              # 1 x 25
-            a2 = np.append(np.array(1.0).reshape(1,1),a2,1).reshape(1,hidden_layer_size + 1)   # 1 x 26
-            z3 = np.dot(a2,np.transpose(theta2))                                               # 1 x 10
-            a3 = self.sigmoid(z3)                                                              # 1 x 10
-            
-            # backprop 
-            delta_3 = (a3 - target_of_i).reshape(1,num_labels)   # 1 x 10
-            delta_2 = np.dot(np.transpose(theta2), np.transpose(delta_3)) * (a2 * (1 - a2)).reshape(hidden_layer_size + 1, 1) # 26 x 1
-            delta_2 = delta_2[1:]
-            theta2_grad = theta2_grad + np.dot(np.transpose(delta_3), a2)
-            theta1_grad = theta1_grad + np.dot(delta_2, a1)
-            
-            for k in range(num_labels):
-                J = J - ( target_of_i[0,k] * np.log(a3[0,k])  + (1.0 - target_of_i[0,k]) * np.log(1.0 - a3[0,k]) )
-        '''
+        Theta1_grad = (1.0 / m) * Delta1
+        Theta2_grad = (1.0 / m) * Delta2
         
-        J = 1.0 / m * J
-        theta1_grad = theta1_grad / float(m)
-        theta2_grad = theta2_grad / float(m)
+        if reg_lambda != 0:
+            Theta1_grad[:, 1:] = Theta1_grad[:, 1:] + (reg_lambda / m) * t1f
+            Theta2_grad[:, 1:] = Theta2_grad[:, 1:] + (reg_lambda / m) * t2f
         
-        # regularization for gradients
-        theta1_grad[:,1:] = theta1_grad[:,1:] + float(theLambda)/m*(theta1[:,1:])
-        theta2_grad[:,1:] = theta2_grad[:,1:] + float(theLambda)/m*(theta2[:,1:])
-        
-        # regularization for cost J
-        tempTheta1 = np.power(theta1,2)
-        tempTheta2 = np.power(theta2,2)
-        tempSum = sum(sum(tempTheta1[:,1:]))
-        tempSum = tempSum + sum(sum(tempTheta2[:,1:]))
-        J = J + float(theLambda)/(2*m)*tempSum
-        
-        grad = np.append(theta1_grad.ravel(), theta2_grad.ravel())
-        
-        return(J, grad)
-        
+        return self.pack_thetas(Theta1_grad, Theta2_grad)
+    
     def fit(self, X, y):
-        #initializing:
-        input_layer_size = np.size(X,1)
-        num_labels = len(set(y.reshape(np.size(X,0),)))
-        theta1 = self.randInitializeWeights(input_layer_size, self.hidden_layer_size)   # 25 x 401
-        theta2 = self.randInitializeWeights(self.hidden_layer_size, num_labels)         # 10 x 26
-        nn_params = np.append(theta1.ravel(), theta2.ravel())
-        options = {'maxiter' : self.maxiter}
+        num_features = X.shape[0]
+        input_layer_size = X.shape[1]
+        num_labels = len(set(y))
         
-        #running optimize function
-        res = optimize.minimize(self.nnCostFunction, nn_params, jac = True, method = self.opti_method, options = options, 
-        args = (input_layer_size, self.hidden_layer_size, num_labels, X, y, self.reg_lambda))
-        print "optimization finished! Message: "
-        print res.message
-        self.t1 = (res.x[0:(self.hidden_layer_size * (input_layer_size+1))]).reshape(self.hidden_layer_size, input_layer_size+1)
-        self.t2 = (res.x[(self.hidden_layer_size * (input_layer_size+1)):]).reshape(num_labels, self.hidden_layer_size+1)    
+        theta1_0 = self.rand_init(input_layer_size, self.hidden_layer_size)
+        theta2_0 = self.rand_init(self.hidden_layer_size, num_labels)
+        thetas0 = self.pack_thetas(theta1_0, theta2_0)
         
+        options = {'maxiter': self.maxiter}
+        _res = optimize.minimize(self.function, thetas0, jac=self.function_prime, method=self.method, 
+                                 args=(input_layer_size, self.hidden_layer_size, num_labels, X, y, 0), options=options)
+        
+        self.t1, self.t2 = self.unpack_thetas(_res.x, input_layer_size, self.hidden_layer_size, num_labels)
+    
     def predict(self, X):
-        m = np.size(X,0)                              # 5000
-        
-        # initializing
-        a1 = np.append(np.ones([m,1]),X,1)            # 5000 x 401
-        
-        # feedForward
-        z2 = np.dot(self.t1, a1.T)                    # 25 x 5000
-        a2 = self.sigmoid(z2)
-        a2 = np.append(np.ones([1,m]), a2, 0)         # 26 x 5000
-        
-        z3 = np.dot(self.t2, a2)
-        a3 = self.sigmoid(z3).T                       # 5000 * 10
-            
-        result = (a3.argmax(1) + 1).reshape(m, 1)
-        return result
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
+        return self.predict_proba(X).argmax(0)
+    
+    def predict_proba(self, X):
+        _, _, _, _, h = self._forward(X, self.t1, self.t2)
+        return h
