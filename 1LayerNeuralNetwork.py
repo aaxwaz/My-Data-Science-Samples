@@ -1,8 +1,9 @@
-from __future__ import division
+# This is the python version for the Coursera course Machine Learning exercise 4 - neural network. 
+# The code was originally implemented in Octave, so I "translated" the codes into python
 import numpy as np
 from scipy import optimize
 
-class NeuralNetwork(object):
+class MyNeuron(object):
     
     def __init__(self, reg_lambda=1.0, epsilon_init=0.12, hidden_layer_size=25, opti_method='TNC', maxiter=200):
         self.reg_lambda = reg_lambda
@@ -35,64 +36,37 @@ class NeuralNetwork(object):
         t1 = thetas[t1_start:t1_end].reshape((hidden_layer_size, input_layer_size + 1))
         t2 = thetas[t1_end:].reshape((num_labels, hidden_layer_size + 1))
         return t1, t2
-    
-    def _forward(self, X, t1, t2):
-        m = X.shape[0]
-        ones = None
-        if len(X.shape) == 1:
-            ones = np.array(1).reshape(1,)
-        else:
-            ones = np.ones(m).reshape(m,1)
-        
-        # Input layer
-        a1 = np.hstack((ones, X))
-        
-        # Hidden Layer
-        z2 = np.dot(t1, a1.T)
-        a2 = self.activation_func(z2)
-        a2 = np.hstack((ones, a2.T))
-        
-        # Output layer
-        z3 = np.dot(t2, a2.T)
-        a3 = self.activation_func(z3)
-        return a1, z2, a2, z3, a3
-    
-    def function(self, thetas, input_layer_size, hidden_layer_size, num_labels, X, y, reg_lambda):
+   
+    def nnCostFunction(self, thetas, input_layer_size, hidden_layer_size, num_labels, X, y, reg_lambda):
         t1, t2 = self.unpack_thetas(thetas, input_layer_size, hidden_layer_size, num_labels)
         
         m = X.shape[0]
         Y = np.eye(num_labels)[y]
+        t1f = t1[:, 1:]  
+        t2f = t2[:, 1:]  
         
-        _, _, _, _, h = self._forward(X, t1, t2)
-        costPositive = -Y * np.log(h).T
-        costNegative = (1 - Y) * np.log(1 - h).T
+        a1 = np.append(np.ones([m,1]),X,1)            
+        
+        # feedForward
+        z2 = np.dot(t1, a1.T)                   
+        a2 = self.sigmoid(z2)
+        a2 = np.append(np.ones([1,m]), a2, 0)        
+        
+        z3 = np.dot(t2, a2)
+        a3 = self.sigmoid(z3)                     
+        
+        # cost 
+        costPositive = -Y * np.log(a3).T
+        costNegative = (1 - Y) * np.log(1 - a3).T
         cost = costPositive - costNegative
         J = np.sum(cost) / m
         
-        if reg_lambda != 0:
-            t1f = t1[:, 1:]
-            t2f = t2[:, 1:]
-            reg = (self.reg_lambda / (2.0 * m)) * (self.sumsqr(t1f) + self.sumsqr(t2f))
-            J = J + reg
-        return J
+        #Back-Prop 
+        d3 = a3 - Y.T  
+        d2 = np.dot(t2f.T, d3) * self.activation_func_prime(z2)
         
-    def function_prime(self, thetas, input_layer_size, hidden_layer_size, num_labels, X, y, reg_lambda):
-        t1, t2 = self.unpack_thetas(thetas, input_layer_size, hidden_layer_size, num_labels)
-        
-        m = X.shape[0]
-        t1f = t1[:, 1:]  #25 400
-        t2f = t2[:, 1:]  #10 25
-        Y = np.eye(num_labels)[y]
-        
-        Delta1, Delta2 = 0, 0  # 25 401; 10 26
-        
-        a1, z2, a2, z3, a3 = self._forward(X, t1, t2) # (5000, 401)  (25, 5000) (5000, 26) (10, 5000) (10, 5000)
-     
-        d3 = a3 - Y.T  #10 5000
-        d2 = np.dot(t2f.T, d3) * self.activation_func_prime(z2) # 25 x 5000
-        
-        Delta2 = np.dot(d3, a2) #10 26
-        Delta1 = np.dot(d2, a1) #25 401
+        Delta2 = np.dot(d3, a2.T) 
+        Delta1 = np.dot(d2, a1) 
             
         Theta1_grad = (1.0 / m) * Delta1
         Theta2_grad = (1.0 / m) * Delta2
@@ -100,9 +74,12 @@ class NeuralNetwork(object):
         if reg_lambda != 0:
             Theta1_grad[:, 1:] = Theta1_grad[:, 1:] + (reg_lambda / m) * t1f
             Theta2_grad[:, 1:] = Theta2_grad[:, 1:] + (reg_lambda / m) * t2f
+            reg = (self.reg_lambda / (2.0 * m)) * (self.sumsqr(t1f) + self.sumsqr(t2f))
+            J = J + reg
+            
+        grad = self.pack_thetas(Theta1_grad, Theta2_grad)
+        return (J, grad)
         
-        return self.pack_thetas(Theta1_grad, Theta2_grad)
-    
     def fit(self, X, y):
         num_features = X.shape[0]
         input_layer_size = X.shape[1]
@@ -113,14 +90,24 @@ class NeuralNetwork(object):
         thetas0 = self.pack_thetas(theta1_0, theta2_0)
         
         options = {'maxiter': self.maxiter}
-        _res = optimize.minimize(self.function, thetas0, jac=self.function_prime, method=self.method, 
-                                 args=(input_layer_size, self.hidden_layer_size, num_labels, X, y, 0), options=options)
+        _res = optimize.minimize(self.nnCostFunction, thetas0, jac=True, method=self.method, 
+                                 args=(input_layer_size, self.hidden_layer_size, num_labels, X, y, self.reg_lambda), options=options)
         
         self.t1, self.t2 = self.unpack_thetas(_res.x, input_layer_size, self.hidden_layer_size, num_labels)
     
     def predict(self, X):
-        return self.predict_proba(X).argmax(0)
-    
-    def predict_proba(self, X):
-        _, _, _, _, h = self._forward(X, self.t1, self.t2)
-        return h
+        m = np.size(X,0)                              
+        
+        # initializing
+        a1 = np.append(np.ones([m,1]),X,1)           
+        
+        # feedForward
+        z2 = np.dot(self.t1, a1.T)                   
+        a2 = self.sigmoid(z2)
+        a2 = np.append(np.ones([1,m]), a2, 0)         
+        
+        z3 = np.dot(self.t2, a2)
+        a3 = self.sigmoid(z3).T                       
+            
+        result = (a3.argmax(1)).reshape(m, 1)
+        return result
